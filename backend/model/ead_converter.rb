@@ -1,4 +1,3 @@
-require_relative '../../../../backend/app/converters/ead_converter'
 class HarvardEADConverter < EADConverter
   def self.configure
     super
@@ -51,9 +50,13 @@ class HarvardEADConverter < EADConverter
          obj
       end
     end
-  end
 
-end
+    with :daoloc do
+      # nothing! this is here to override super's implementation to prevent duplicate daoloc processing
+    end
+  end # END configure
+
+end # END class
 
 ::EADConverter
 ::EADConverter = HarvardEADConverter

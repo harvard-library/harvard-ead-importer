@@ -51,7 +51,7 @@ class HarvardEADConverter < EADConverter
       end
     end
 
-    with :daoloc do
+    with 'daoloc' do
       # nothing! this is here to override super's implementation to prevent duplicate daoloc processing
     end
   end # END configure

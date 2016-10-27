@@ -1,7 +1,102 @@
 class HarvardEADConverter < EADConverter
+
   def self.configure
     super
 
+    # Audience fixes
+    def make_nested_note(note_name, tag)
+      content = tag.inner_text
+
+      make :note_multipart, {
+             :type => note_name,
+             :persistent_id => att('id'),
+		         :publish => att('audience') != 'internal',
+             :subnotes => {
+               'jsonmodel_type' => 'note_text',
+               'content' => format_content( content ),
+               'publish' => att('audience') != 'internal' # HAX:DAVE This is wrong, but only used in dimensions handling,
+             }
+           } do |note|
+        set ancestor(:resource, :archival_object), :notes, note
+      end
+    end
+
+    with 'bibliography' do
+      make :note_bibliography
+      set :persistent_id, att('id')
+      set :publish, att('audience') != 'internal'
+      set ancestor(:resource, :archival_object), :notes, proxy
+    end
+
+    with 'index' do
+      make :note_index
+      set :persistent_id, att('id')
+      set :publish, att('audience') != 'internal'
+      set ancestor(:resource, :archival_object), :notes, proxy
+    end
+
+    with 'chronlist' do
+      if  ancestor(:note_multipart)
+        left_overs = insert_into_subnotes
+      else
+        left_overs = nil
+        make :note_multipart, {
+               :type => node.name,
+               :persistent_id => att('id'),
+               :publish => att('audience') != 'internal'
+             } do |note|
+          set ancestor(:resource, :archival_object), :notes, note
+        end
+      end
+
+      make :note_chronology, {
+             :publish => att('audience') != 'internal'
+           } do |note|
+        set ancestor(:note_multipart), :subnotes, note
+      end
+
+      # and finally put the leftovers back in the list of subnotes...
+      if ( !left_overs.nil? && left_overs["content"] && left_overs["content"].length > 0 )
+        set ancestor(:note_multipart), :subnotes, left_overs
+      end
+    end
+
+    with 'dao' do
+      make :instance, {
+             :instance_type => 'digital_object'
+           } do |instance|
+        set ancestor(:resource, :archival_object), :instances, instance
+      end
+
+
+      make :digital_object, {
+             :digital_object_id => SecureRandom.uuid,
+             :publish => att('audience') != 'internal',
+             :title => att('title')
+           } do |obj|
+        obj.file_versions <<  {
+          :use_statement => att('role'),
+          :file_uri => att('href'),
+          :xlink_actuate_attribute => att('actuate'),
+          :xlink_show_attribute => att('show')
+        }
+        set ancestor(:instance), :digital_object, obj
+      end
+
+    end
+
+    with 'daodesc' do
+      make :note_digital_object, {
+             :type => 'note',
+             :persistent_id => att('id'),
+             :publish => att('audience') != 'internal',
+             :content => inner_xml.strip
+           } do |note|
+        set ancestor(:digital_object), :notes, note
+      end
+    end
+
+    # daogrp fixes
     with 'daogrp' do
       title = att('title')
 
@@ -55,201 +150,108 @@ class HarvardEADConverter < EADConverter
     with 'daoloc' do
       # nothing! this is here to override super's implementation to prevent duplicate daoloc processing
     end
-  end # END configure
-
-  ### Publish/Audience fixes for various note fields and methods ###
-
-  def make_nested_note(note_name, tag)
-      content = tag.inner_text
-
-      make :note_multipart, {
-        :type => note_name,
-        :persistent_id => att('id'),
-		    :publish => att('audience') != 'internal',
-        :subnotes => {
-          'jsonmodel_type' => 'note_text',
-          'content' => format_content( content ),
-          'publish' => att('audience') != 'internal' # HAX:DAVE This is wrong, but only used in dimensions handling,
-        }
-      } do |note|
-        set ancestor(:resource, :archival_object), :notes, note
-      end
-  end
 
 
-  with 'bibliography' do
-    make :note_bibliography
-    set :persistent_id, att('id')
-    set :publish, att('audience') != 'internal'
-    set ancestor(:resource, :archival_object), :notes, proxy
-  end
+    # BEGIN INDEX CUSTOMIZATIONS
+    # Copied from Bentley HL importer (https://github.com/bentley-historical-library/bhl-ead-importer)
 
-  with 'index' do
-    make :note_index
-    set :persistent_id, att('id')
-    set :publish, att('audience') != 'internal'
-    set ancestor(:resource, :archival_object), :notes, proxy
-  end
+    # The stock EAD converter creates separate index items for each indexentry,
+    # one for the value (persname, famname, etc) and one for the reference (ref),
+    # even when they are within the same indexentry and are related
+    # (i.e., the persname is a correspondent, the ref is a date or a location at which
+    # correspondence with that person can be found).
+    # The Bentley's <indexentry>s generally look something like:
+    # # <indexentry><persname>Some person</persname><ref>Some date or folder</ref></indexentry>
+    # # As the <persname> and the <ref> are associated with one another,
+    # we want to keep them together in the same index item in ArchiveSpace.
 
-  with 'chronlist' do
-    if  ancestor(:note_multipart)
-      left_overs = insert_into_subnotes
-    else
-      left_overs = nil
-      make :note_multipart, {
-             :type => node.name,
-             :persistent_id => att('id'),
-             :publish => att('audience') != 'internal'
-      } do |note|
-        set ancestor(:resource, :archival_object), :notes, note
-      end
-    end
+    # This will treat each <indexentry> as one item,
+    # creating an index item with a 'value' from the <persname>, <famname>, etc.
+    # and a 'reference_text' from the <ref>.
 
-    make :note_chronology, {
-           :publish => att('audience') != 'internal'
-    } do |note|
-      set ancestor(:note_multipart), :subnotes, note
-    end
+    with 'indexentry' do
 
-    # and finally put the leftovers back in the list of subnotes...
-    if ( !left_overs.nil? && left_overs["content"] && left_overs["content"].length > 0 )
-      set ancestor(:note_multipart), :subnotes, left_overs
-    end
-  end
+      entry_type = ''
+      entry_value = ''
+      entry_reference = ''
 
-  with 'dao' do
-    make :instance, {
-           :instance_type => 'digital_object'
-    } do |instance|
-      set ancestor(:resource, :archival_object), :instances, instance
-    end
+      indexentry = Nokogiri::XML::DocumentFragment.parse(inner_xml)
 
+      indexentry.children.each do |child|
 
-    make :digital_object, {
-           :digital_object_id => SecureRandom.uuid,
-           :publish => att('audience') != 'internal',
-           :title => att('title')
-         } do |obj|
-      obj.file_versions <<  {
-        :use_statement => att('role'),
-        :file_uri => att('href'),
-        :xlink_actuate_attribute => att('actuate'),
-        :xlink_show_attribute => att('show')
-      }
-      set ancestor(:instance), :digital_object, obj
-    end
+        case child.name
+        when 'name'
+          entry_value << child.content
+          entry_type << 'name'
+        when 'persname'
+          entry_value << child.content
+          entry_type << 'person'
+        when 'famname'
+          entry_value << child.content
+          entry_type << 'family'
+        when 'corpname'
+          entry_value << child.content
+          entry_type << 'corporate_entity'
+        when 'subject'
+          entry_value << child.content
+          entry_type << 'subject'
+        when 'function'
+          entry_value << child.content
+          entry_type << 'function'
+        when 'occupation'
+          entry_value << child.content
+          entry_type << 'occupation'
+        when 'genreform'
+          entry_value << child.content
+          entry_type << 'genre_form'
+        when 'title'
+          entry_value << child.content
+          entry_type << 'title'
+        when 'geogname'
+          entry_value << child.content
+          entry_type << 'geographic_name'
+        end
 
-  end
+        if child.name == 'ref'
+          entry_reference << child.content
+        end
 
-  with 'daodesc' do
-    make :note_digital_object, {
-           :type => 'note',
-           :persistent_id => att('id'),
-           :publish => att('audience') != 'internal',
-           :content => inner_xml.strip
-    } do |note|
-      set ancestor(:digital_object), :notes, note
-    end
-  end
-
-  # BEGIN INDEX CUSTOMIZATIONS
-  # Copied from Bentley HL importer (https://github.com/bentley-historical-library/bhl-ead-importer)
-
-  # The stock EAD converter creates separate index items for each indexentry,
-  # one for the value (persname, famname, etc) and one for the reference (ref),
-  # even when they are within the same indexentry and are related
-  # (i.e., the persname is a correspondent, the ref is a date or a location at which
-  # correspondence with that person can be found).
-  # The Bentley's <indexentry>s generally look something like:
-  # # <indexentry><persname>Some person</persname><ref>Some date or folder</ref></indexentry>
-  # # As the <persname> and the <ref> are associated with one another,
-  # we want to keep them together in the same index item in ArchiveSpace.
-
-  # This will treat each <indexentry> as one item,
-  # creating an index item with a 'value' from the <persname>, <famname>, etc.
-  # and a 'reference_text' from the <ref>.
-
-  with 'indexentry' do
-
-    entry_type = ''
-    entry_value = ''
-    entry_reference = ''
-
-    indexentry = Nokogiri::XML::DocumentFragment.parse(inner_xml)
-
-    indexentry.children.each do |child|
-
-      case child.name
-      when 'name'
-        entry_value << child.content
-        entry_type << 'name'
-      when 'persname'
-        entry_value << child.content
-        entry_type << 'person'
-      when 'famname'
-        entry_value << child.content
-        entry_type << 'family'
-      when 'corpname'
-        entry_value << child.content
-        entry_type << 'corporate_entity'
-      when 'subject'
-        entry_value << child.content
-        entry_type << 'subject'
-      when 'function'
-        entry_value << child.content
-        entry_type << 'function'
-      when 'occupation'
-        entry_value << child.content
-        entry_type << 'occupation'
-      when 'genreform'
-        entry_value << child.content
-        entry_type << 'genre_form'
-      when 'title'
-        entry_value << child.content
-        entry_type << 'title'
-      when 'geogname'
-        entry_value << child.content
-        entry_type << 'geographic_name'
       end
 
-      if child.name == 'ref'
-        entry_reference << child.content
+      make :note_index_item, {
+             :type => entry_type,
+             :value => entry_value,
+             :reference_text => entry_reference
+           } do |item|
+        set ancestor(:note_index), :items, item
       end
-
     end
 
-    make :note_index_item, {
-           :type => entry_type,
-           :value => entry_value,
-           :reference_text => entry_reference
-         } do |item|
-      set ancestor(:note_index), :items, item
+    # Skip the stock importer actions to avoid confusion/duplication
+    {
+      'name' => 'name',
+      'persname' => 'person',
+      'famname' => 'family',
+      'corpname' => 'corporate_entity',
+      'subject' => 'subject',
+      'function' => 'function',
+      'occupation' => 'occupation',
+      'genreform' => 'genre_form',
+      'title' => 'title',
+      'geogname' => 'geographic_name'
+    }.each do |k, v|
+      with "indexentry/#{k}" do |node|
+        next
+      end
     end
-  end
 
-  # Skip the stock importer actions to avoid confusion/duplication
-  {
-    'name' => 'name',
-    'persname' => 'person',
-    'famname' => 'family',
-    'corpname' => 'corporate_entity',
-    'subject' => 'subject',
-    'function' => 'function',
-    'occupation' => 'occupation',
-    'genreform' => 'genre_form',
-    'title' => 'title',
-    'geogname' => 'geographic_name'
-  }.each do |k, v|
-    with "indexentry/#{k}" do |node|
+    with 'indexentry/ref' do
       next
     end
-  end
 
-  with 'indexentry/ref' do
-    next
-  end
+    # END INDEX CUSTOMIZATIONS
 
-  # END INDEX CUSTOMIZATIONS
+  end # END configure
 
 end # END class
 

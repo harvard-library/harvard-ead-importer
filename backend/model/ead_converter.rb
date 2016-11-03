@@ -133,7 +133,7 @@ class HarvardEADConverter < EADConverter
           :file_uri => att('href'),
           :xlink_actuate_attribute => att('actuate'),
           :xlink_show_attribute => att('show'),
-          :publish = att('audience') != 'internal'
+          :publish => att('audience') != 'internal'
         }
         set ancestor(:instance), :digital_object, obj
       end

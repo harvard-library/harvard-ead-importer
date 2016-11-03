@@ -3,6 +3,19 @@ class HarvardEADConverter < EADConverter
   def self.configure
     super
 
+    # fix for <p> problems
+
+    # A lot of nodes need tweaking to format the content. Like, people love their p's but they don't
+    # actually want to ever see them.
+    def format_content(content)
+      return content if content.nil?
+      content.delete!("\n") # first we remove all linebreaks, since they're probably unintentional
+      content.gsub(%r{<p(?: [^>/]*)?>},"").gsub(%r{</p>|<p(?:\s+[^>]*)?/>}, "\n\n")
+        .gsub("<lb/>", "\n\n").gsub("<lb>","\n\n").gsub("</lb>","")
+        .strip
+    end
+
+
     # Audience fixes
     def make_nested_note(note_name, tag)
       content = tag.inner_text
@@ -61,6 +74,47 @@ class HarvardEADConverter < EADConverter
       end
     end
 
+    with 'list' do
+
+      if  ancestor(:note_multipart)
+        left_overs = insert_into_subnotes
+      else
+        left_overs = nil
+        make :note_multipart, {
+          :type => 'odd',
+          :persistent_id => att('id'),
+          :publish => att('audience') != 'internal'
+        } do |note|
+          set ancestor(:resource, :archival_object), :notes, note
+        end
+      end
+
+
+      # now let's make the subnote list
+      type = att('type')
+      if type == 'deflist' || (type.nil? && inner_xml.match(/<deflist>/))
+        make :note_definedlist, {
+          :publish => att('audience') != 'internal'
+        } do |note|
+          set ancestor(:note_multipart), :subnotes, note
+        end
+      else
+        make :note_orderedlist, {
+          :enumeration => att('numeration'),
+          :publish => att('audience') != 'internal'
+        } do |note|
+          set ancestor(:note_multipart), :subnotes, note
+        end
+      end
+
+
+      # and finally put the leftovers back in the list of subnotes...
+      if ( !left_overs.nil? && left_overs["content"] && left_overs["content"].length > 0 )
+        set ancestor(:note_multipart), :subnotes, left_overs
+      end
+
+    end
+
     with 'dao' do
       make :instance, {
              :instance_type => 'digital_object'
@@ -78,7 +132,8 @@ class HarvardEADConverter < EADConverter
           :use_statement => att('role'),
           :file_uri => att('href'),
           :xlink_actuate_attribute => att('actuate'),
-          :xlink_show_attribute => att('show')
+          :xlink_show_attribute => att('show'),
+          :publish = att('audience') != 'internal'
         }
         set ancestor(:instance), :digital_object, obj
       end
@@ -108,6 +163,7 @@ class HarvardEADConverter < EADConverter
       make :digital_object, {
         :digital_object_id => SecureRandom.uuid,
         :title => title,
+        :publish => att('audience') != 'internal'
       } do |obj|
          ancestor(:resource, :archival_object) do |ao|
           ao.instances.push({'instance_type' => 'digital_object', 'digital_object' => {'ref' => obj.uri}})

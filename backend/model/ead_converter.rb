@@ -230,6 +230,7 @@ class HarvardEADConverter < EADConverter
       entry_type = ''
       entry_value = ''
       entry_reference = ''
+      entry_ref_target = ''
 
       indexentry = Nokogiri::XML::DocumentFragment.parse(inner_xml)
 
@@ -270,6 +271,7 @@ class HarvardEADConverter < EADConverter
 
         if child.name == 'ref'
           entry_reference << child.content
+          entry_ref_target << (child['target'] || '')
         end
 
       end
@@ -277,7 +279,8 @@ class HarvardEADConverter < EADConverter
       make :note_index_item, {
              :type => entry_type,
              :value => entry_value,
-             :reference_text => entry_reference
+             :reference_text => entry_reference,
+             :reference => entry_ref_target
            } do |item|
         set ancestor(:note_index), :items, item
       end
@@ -294,15 +297,12 @@ class HarvardEADConverter < EADConverter
       'occupation' => 'occupation',
       'genreform' => 'genre_form',
       'title' => 'title',
-      'geogname' => 'geographic_name'
+      'geogname' => 'geographic_name',
+      'ref' => 'ref'
     }.each do |k, v|
       with "indexentry/#{k}" do |node|
         next
       end
-    end
-
-    with 'indexentry/ref' do
-      next
     end
 
     # END INDEX CUSTOMIZATIONS

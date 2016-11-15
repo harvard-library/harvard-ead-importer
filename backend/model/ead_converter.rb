@@ -18,7 +18,7 @@ class HarvardEADConverter < EADConverter
 
     # Audience fixes
     def make_nested_note(note_name, tag)
-      content = tag.inner_text
+      content = tag.encode_special_chars(tag.inner_text)
 
       make :note_multipart, {
              :type => note_name,

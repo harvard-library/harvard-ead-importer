@@ -225,6 +225,19 @@ class HarvardEADConverter < EADConverter
     # creating an index item with a 'value' from the <persname>, <famname>, etc.
     # and a 'reference_text' from the <ref>.
 
+    field_mapping = {
+      'name' => 'name',
+      'persname' => 'person',
+      'famname' => 'family',
+      'corpname' => 'corporate_entity',
+      'subject' => 'subject',
+      'function' => 'function',
+      'occupation' => 'occupation',
+      'genreform' => 'genre_form',
+      'title' => 'title',
+      'geogname' => 'geographic_name',
+    }
+
     with 'indexentry' do
 
       entry_type = ''
@@ -236,40 +249,10 @@ class HarvardEADConverter < EADConverter
 
       indexentry.children.each do |child|
 
-        case child.name
-        when 'name'
+        if field_mapping.key? child.name
           entry_value << child.content
-          entry_type << 'name'
-        when 'persname'
-          entry_value << child.content
-          entry_type << 'person'
-        when 'famname'
-          entry_value << child.content
-          entry_type << 'family'
-        when 'corpname'
-          entry_value << child.content
-          entry_type << 'corporate_entity'
-        when 'subject'
-          entry_value << child.content
-          entry_type << 'subject'
-        when 'function'
-          entry_value << child.content
-          entry_type << 'function'
-        when 'occupation'
-          entry_value << child.content
-          entry_type << 'occupation'
-        when 'genreform'
-          entry_value << child.content
-          entry_type << 'genre_form'
-        when 'title'
-          entry_value << child.content
-          entry_type << 'title'
-        when 'geogname'
-          entry_value << child.content
-          entry_type << 'geographic_name'
-        end
-
-        if child.name == 'ref'
+          entry_type << field_mapping[child.name]
+        elsif child.name == 'ref'
           entry_reference << child.content
           entry_ref_target << (child['target'] || '')
         end
@@ -287,22 +270,14 @@ class HarvardEADConverter < EADConverter
     end
 
     # Skip the stock importer actions to avoid confusion/duplication
-    {
-      'name' => 'name',
-      'persname' => 'person',
-      'famname' => 'family',
-      'corpname' => 'corporate_entity',
-      'subject' => 'subject',
-      'function' => 'function',
-      'occupation' => 'occupation',
-      'genreform' => 'genre_form',
-      'title' => 'title',
-      'geogname' => 'geographic_name',
-      'ref' => 'ref'
-    }.each do |k, v|
+    field_mapping.each do |k, v|
       with "indexentry/#{k}" do |node|
         next
       end
+    end
+
+    with 'indexentry/ref' do
+      next
     end
 
     # END INDEX CUSTOMIZATIONS

@@ -252,9 +252,11 @@ class HarvardEADConverter < EADConverter
         if field_mapping.key? child.name
           entry_value << child.content
           entry_type << field_mapping[child.name]
-        elsif child.name == 'ref'
+        elsif child.name == 'ref' && child.xpath('./ptr').count == 0
           entry_reference << child.content
           entry_ref_target << (child['target'] || '')
+        elsif child.name == 'ref'
+          entry_reference = format_content( child.inner_html )
         end
 
       end
